@@ -1,0 +1,191 @@
+---
+title: "3D Printer Simulation and Sampling Study"
+author: "Zongsheng Liu (s2097920)"
+output:
+  html_document:
+    number_sections: yes
+  pdf_document:
+    number_sections: yes
+header-includes:
+  - \newcommand{\bm}[1]{\boldsymbol{#1}}
+  - \newcommand{\mat}[1]{\begin{bmatrix}#1\end{bmatrix}}
+---
+
+```{r setup, include = FALSE,warning=FALSE}
+# Modify this setup code chunk to set options
+# or add extra packages etc if needed.
+# See the project instructions for more details
+# on what code to show, and where/how.
+
+# Set default code chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  eval = TRUE,
+  warning = FALSE
+)
+
+suppressPackageStartupMessages(library(tidyverse))
+theme_set(theme_bw())
+suppressPackageStartupMessages(library(StatCompLab))
+
+# To give the same random number sequence every time the document is knit:ed,
+# making it easier to discuss the specific numbers in the text:
+set.seed(12345L)
+```
+
+```{r code=readLines("code.R"), eval=TRUE, echo=FALSE, warning=FALSE}
+# Do not change this code chunk
+# Load function definitions
+source("code.R")
+```
+
+1.0 Model Description 
+
+The aim is to estimate the parameters of a Bayesian statistical model of material use in a 3D printer. The printer uses rolls of filament that get heated and squeezed through a moving nozzle, gradually building objects. The objects are first designed in a CAD program (Computer Aided Design) that also estimates how much material will be required to print the object. The data contains information about one 3D-printed object per row. The columns are
+\begin{itemize}
+  \item Index: an observation index
+  \item Date: printing dates
+  \item Material: the printing material, identified by its colour
+  \item CAD\_Weight: the object weight (in grams) that the CAD software calculated
+  \item Actual\_Weight: the actual weight of the object (in grams) after printing
+\end{itemize}
+If the $CAD$ system and printer were both perfect, the $CAD\_Weight$ and $Actual\_Weight$ values would be equal for each object. In reality, there are random variations, for example, due to varying humidity and temperature, and systematic deviations due to the CAD system not having perfect information about the properties of the printing materials. When looking at the data (see below) it’s clear that the variability of the data is larger for larger values of $CAD\_Weight$. The printer operator has made a simple physics analysis, and settled on a model where the connection between $CAD\_Weight$ and $Actual\_Weight$ follows a linear model, and the variance increases with square of $CAD\_Weight$. If we denote the CAD weight for observations i by $x_i$, and the corresponding actual weight by $y_i$, the model can be defined by
+$$y_i \sim Normal[\beta_1 + \beta_2 x_i, \beta_3 + \beta_4 x_i^2)].$$
+
+To ensure positivity of the variance, the parameterisation $$\theta =[ \theta_1, \theta_2, \theta_3, \theta_4] =  [\beta_1, \beta_2, log(\beta_3), log(\beta_4)]$$ is introduced, and the printer operator assigns independent prior distributions as follows:
+
+\begin{itemize}
+  \item $\theta_1 \sim Normal(0, \gamma_1)$
+  \item $\theta_2 \sim Normal(1, \gamma_2)$
+  \item $\theta_3 \sim LogExp(\gamma_3)$
+  \item $\theta_4 \sim LogExp(\gamma_4)$
+\end{itemize}
+
+where $LogExp(a)$ denotes the logarithm of an exponentially distributed random variable with rate parameter $a$. The $$\gamma = (\gamma_1, \gamma_2, \gamma_3, \gamma_4)$$ values are positive parameters. The printer operator reasons that due to random fluctuations in the material properties (such as the density) and room temperature should lead to a relative error instead of an additive error, which leads them to the
+model as an approximation of that. The basic physics assumption is that the error in the CAD software calculation of the weight is proportional to the weight itself.
+
+
+
+1.1 Prior Density\
+Knowing that all the observations and all $\theta_i$ are independent. Thus, the joint prior density would be computed as:
+\begin{equation}
+p(\theta) = \prod_{i=1}^{4} p(\theta_i).
+\end{equation}
+By taking the logarithm for both sides, the logarithm of the joint prior density could be reformulated as 
+\begin{equation}
+log \; p(\theta) = log \prod_{i=1}^{4} p(\theta_i) = \sum_{i=1}^{4} log \; p(\theta_i).
+\end{equation}
+
+
+1.2 Observation Likelihood\
+Since all the $x_i$ all independent, the observation log-likelihood would simply be computed as:
+\begin{equation}
+p(y\;|\;\theta) = log \prod_{i=1}^{86} f(x_i, \theta) = \sum_{i=1}^{86} log \; f(x_i, \theta).
+\end{equation}
+
+
+1.3 Posterior Density\
+Firstly, knowing that posterior density is proportional to the prior density times the observation likelihood. In mathematical symbols, it could be written as:
+\begin{equation}
+p(\theta\;|\;y) \propto \;p(\theta) * p(y\;|\;\theta).
+\end{equation}
+Thus, in terms of the logarithm, the logarithm of the posterior density would be computed as:
+
+\begin{equation}
+log\;p(\theta\;|\;y) \propto \;log\;p(\theta) + log\;p(y\;|\;\theta).
+\end{equation}
+
+
+1.4 Posterior Mode\
+Finding the posterior mode needs to be done by maximising the posterior distribution with respect to $\theta$. Since the internal command optim in R provide a minimisation function with the default setting. In this case, maximisation was needed. It could be done by either adding an 
+additional argument control=list(fnscale=-1) in optim or manually setting the fn arguments with an additional negative sign. The return value would simply contain par (the posterior mode location) and hessian ( the Hessian of the log density at the mode). To find the inverse of the negated Hessian S, it could be done by command solve(-hessian).
+
+
+1.5 Gaussian Approximation\
+In this case, setting $\gamma=(1, 1, 1, 1)$ and a start value $\theta=0$. Then, obtain a multivariate Normal approximation $Normal(\mu,\;S)$ for $\theta$.
+The mode, Hessian and negated inverse of the Hessian were computed as:
+
+```{r}
+#compute mode, Hessian, negated inverse of the Hessian
+sol <- posterior_mode(theta_start, x, y, params)
+#call out each component from the above list
+sol$mod
+sol$Hessian
+sol$Negated_Inverse_Hessian
+```
+
+
+
+1.6 Importance sampling function\
+
+Firstly,  using a multivariate Normal approximation as the importance sampling distribution. Then, unnormalized importance weight could by obtained by:
+
+\begin{equation}
+\tilde{w_k} = \frac{p(\theta)p(y|\theta)}{\tilde{p}(\theta|y)} \;|\; \theta = x_k.
+\end{equation}
+In terms of logarithm, log-weights could be simply computed as 
+
+\begin{equation}
+log\;p(\theta)+ log\;p(y|\theta)-log \;\tilde{p}(\theta|y) \;|\; \theta = x_k.
+\end{equation}
+
+Due to the lack of unnormalistion, it could not be represented accurately in the computation. Thus, normalized weight could be obtained by
+
+\begin{equation}
+\tilde{w_k} =exp[log\;w_k-max_j\;log\;w_j]
+\end{equation}. 
+
+After finishing normalization process, values of $\beta_3$ and $\beta_4$ should be further computed by exp() since they were defined above by taking logarithm. Finally, put all 10000 samples together into a data frame, it would have column names $\beta_1$ to $\beta_4$ and the normalized weights.
+
+
+1.7\
+Since the importance sampling function had already been defined in 2.6, 10000 samples could be computed. If sum up the exponential of all the log normalized weights, it would have a value of 1. 
+```{r}
+sum(exp(data[,5]))
+```
+
+Thus, the function defined in 2.6 would make a correct weight. Since there were already a data frame contains 10000 samples. Thus, the weighted CDF VS un-weighted CDF for all $\beta$ could be plotted as follow:
+
+
+```{r, eval=TRUE, echo=FALSE, warning=FALSE}
+ggplot(data) +
+  ylab("CDF") +
+  stat_ewcdf(aes(beta1, weights = (log_weights), col = "Empirical Weighted CDF")) +
+  stat_ecdf(aes(beta1, col = "Un-weighted CDF"))+
+  ggtitle("Empirical Weighted CDF vs Un-weighted CDF for Beta1")  # add a title
+
+ggplot(data) +
+  ylab("CDF") +
+  stat_ewcdf(aes(beta2, weights = (log_weights), col = "Empirical Weighted CDF")) +
+  stat_ecdf(aes(beta2, col = "Un-weighted CDF"))+
+  ggtitle("Empirical Weighted CDF vs Un-weighted CDF for Beta2")  # add a title
+
+ggplot(data) +
+  ylab("CDF") +
+  stat_ewcdf(aes(beta3, weights = (log_weights), col = "Empirical Weighted CDF")) +
+  stat_ecdf(aes(beta3, col = "Un-weighted CDF"))+
+  ggtitle("Empirical Weighted CDF vs Un-weighted CDF for Beta3")  # add a title
+
+ggplot(data) +
+  ylab("CDF") +
+  stat_ewcdf(aes(beta4, weights = (log_weights), col = "Empirical Weighted CDF")) +
+  stat_ecdf(aes(beta4, col = "Un-weighted CDF"))+
+  ggtitle("Empirical Weighted CDF vs Un-weighted CDF for Beta4")  # add a title
+```
+
+The 90% credible interval for all $\beta$ could be formed as follow:
+```{r, eval=TRUE, echo=FALSE}
+CI_table
+```
+
+
+From the sampling method point of view, the importance sampling technique was applied in this case. Since it was difficult to sample it directly, the importance sampling method could solve this problem by obtaining samples from an excellent posterior distribution. A multivariate normal distribution was used as the importance sampling distribution in this case. By investigating the above plot, empirical weighted CDF and unweighted CDF were relatively close and virtually indistinguishable for all $\beta$. Since it already used a relatively large sample size (N=10000), the conclusion could be drawn that the importance sampling distribution was a good distribution in this case.
+
+From the 3D printer point of view, the generated credible interval may could help to make a more advanced estimation for parameters. Thus, it would lead to a more precise CAD weight estimation. Since the credible intervals involve weight, it may help to identify which parameters are most important and which are less critical. Furthermore, knowing that the credible interval would provide some information on uncertainty about the estimated parameters may help adjust and quantify the uncertainty in the estimation. To sum up, it provides good information to improve the algorithm of the printer.
+
+
+# Code appendix
+
+```{r code=readLines("code.R"), eval=FALSE, echo=TRUE}
+# Do not change this code chunk
+```
